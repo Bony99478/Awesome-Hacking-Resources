@@ -42,4 +42,8 @@ export interface RoundState {
   balance: number
   lastWin: number | null
   flash: 'win' | 'crash' | null
+  /** Demo-only: next crash override (null = random). */
+  forcedCrashAt: number | null
+  /** Keep applying forcedCrashAt every round while true. */
+  forceLocked: boolean
 }

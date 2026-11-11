@@ -51,7 +51,52 @@ export class CrashEngine {
       balance: START_BALANCE,
       lastWin: null,
       flash: null,
+      forcedCrashAt: null,
+      forceLocked: false,
     }
+  }
+
+  private nextCrashPoint(): number {
+    if (this.state.forcedCrashAt != null) {
+      const forced = this.state.forcedCrashAt
+      if (!this.state.forceLocked) {
+        // One-shot: consume after scheduling this round
+        this.state = { ...this.state, forcedCrashAt: null }
+      }
+      return forced
+    }
+    return generateCrashPoint()
+  }
+
+  /**
+   * Demo test controls — force the crash multiplier.
+   * If currently in betting, updates this round; otherwise applies to the next round.
+   */
+  setForcedCrash(crashAt: number | null, lock = false): string | null {
+    if (crashAt != null && (Number.isNaN(crashAt) || crashAt < 1)) {
+      return 'Crash must be ≥ 1.00'
+    }
+    const value =
+      crashAt == null ? null : Math.max(1, Math.floor(crashAt * 100) / 100)
+
+    if (this.state.phase === 'betting' && value != null) {
+      this.set({
+        forcedCrashAt: lock ? value : null,
+        forceLocked: lock && value != null,
+        crashAt: value,
+      })
+      return null
+    }
+
+    this.set({
+      forcedCrashAt: value,
+      forceLocked: lock && value != null,
+    })
+    return null
+  }
+
+  clearForcedCrash() {
+    this.set({ forcedCrashAt: null, forceLocked: false })
   }
 
   getState(): RoundState {
@@ -262,12 +307,13 @@ export class CrashEngine {
 
   private beginNextRound() {
     this.requeueAutoBets()
+    const crashAt = this.nextCrashPoint()
     this.set({
       phase: 'betting',
       roundId: this.state.roundId + 1,
       countdownMs: BETTING_MS,
       multiplier: 1,
-      crashAt: generateCrashPoint(),
+      crashAt,
       startedAt: null,
       bets: [],
       livePlayers: spawnLivePlayers(),
