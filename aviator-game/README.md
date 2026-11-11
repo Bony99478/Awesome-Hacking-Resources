@@ -12,6 +12,12 @@ npm run dev
 
 Open the local URL Vite prints (default `http://127.0.0.1:5173`).
 
+## Play tips
+
+- Betting window is ~10s; you can also queue a bet for the **next** round while a flight is live
+- Use **Encaisser** during flight (button stays stable so clicks register)
+- Toggle **Auto encaisser** / **Auto miser** on the bet panels
+
 ## Mode test
 
 In the **Mode test** panel you can force the next crash multiplier (e.g. `2.00x`), optionally lock it for every round, or return to random. This only affects the local demo — not any real casino site.
