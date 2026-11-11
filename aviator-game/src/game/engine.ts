@@ -2,14 +2,16 @@ import { maybeCashOutBots, spawnLivePlayers } from './players'
 import { generateCrashPoint } from './rng'
 import type { ActiveBet, BetConfig, BetSlotId, RoundState } from './types'
 
-const BETTING_MS = 5000
+const params = new URLSearchParams(window.location.search)
+const SLOW = params.has('slow')
+const BETTING_MS = SLOW ? 30000 : 12000
+const CRASH_PAUSE_MS = SLOW ? 4000 : 2500
 const START_BALANCE = 5000
 const TICK_MS = 50
 
 /** Multiplier growth curve: slow start, accelerates (feels like Aviator). */
 export function multiplierAt(elapsedMs: number): number {
   const t = elapsedMs / 1000
-  // e^(0.06 * t) style growth, floored to cents
   const m = Math.pow(Math.E, 0.06 * t)
   return Math.max(1, Math.floor(m * 100) / 100)
 }
@@ -25,8 +27,12 @@ export class CrashEngine {
   private state: RoundState
   private listeners = new Set<Listener>()
   private timer: number | null = null
+  /** Paid bets waiting to lock into the next/current takeoff. */
   private pending: Record<BetSlotId, BetConfig | null> = { a: null, b: null }
+  /** Auto-bet templates (not paid until re-armed). */
+  private autoTemplates: Record<BetSlotId, BetConfig | null> = { a: null, b: null }
   private roundSeed = 1
+  private crashTimer: number | null = null
 
   constructor() {
     this.state = {
@@ -60,7 +66,6 @@ export class CrashEngine {
     if (this.state.forcedCrashAt != null) {
       const forced = this.state.forcedCrashAt
       if (!this.state.forceLocked) {
-        // One-shot: consume after scheduling this round
         this.state = { ...this.state, forcedCrashAt: null }
       }
       return forced
@@ -68,10 +73,6 @@ export class CrashEngine {
     return generateCrashPoint()
   }
 
-  /**
-   * Demo test controls — force the crash multiplier.
-   * If currently in betting, updates this round; otherwise applies to the next round.
-   */
   setForcedCrash(crashAt: number | null, lock = false): string | null {
     if (crashAt != null && (Number.isNaN(crashAt) || crashAt < 1)) {
       return 'Crash must be ≥ 1.00'
@@ -128,31 +129,46 @@ export class CrashEngine {
       clearInterval(this.timer)
       this.timer = null
     }
+    if (this.crashTimer != null) {
+      clearTimeout(this.crashTimer)
+      this.crashTimer = null
+    }
   }
 
   resetBalance() {
     this.set({ balance: START_BALANCE, lastWin: null })
   }
 
+  /**
+   * Place a paid bet for the current betting window, or queue for the next
+   * takeoff while a round is already flying/crashed.
+   */
   queueBet(slot: BetSlotId, config: BetConfig): string | null {
-    if (this.state.phase !== 'betting') {
-      return 'Wait for the next round to place a bet.'
-    }
-    if (config.amount < 1) return 'Minimum bet is 1.00'
-    if (config.amount > this.state.balance) return 'Not enough credits.'
-    if (this.pending[slot]) return 'Bet already placed in this panel.'
+    if (config.amount < 1) return 'Mise minimum : 1.00'
+    if (config.amount > this.state.balance) return 'Solde insuffisant.'
+    if (this.pending[slot]) return 'Mise déjà placée sur ce panneau.'
 
-    // Reserve funds immediately
-    this.pending[slot] = config
+    const active = this.state.bets.find((b) => b.slot === slot)
+    if (
+      (this.state.phase === 'flying' || this.state.phase === 'crashed') &&
+      active &&
+      active.cashedOutAt == null
+    ) {
+      return 'Encaissez d’abord la mise en cours sur ce panneau.'
+    }
+
+    this.pending[slot] = { ...config }
+    this.autoTemplates[slot] = config.autoBet ? { ...config } : null
     this.set({ balance: this.state.balance - config.amount })
     return null
   }
 
   cancelBet(slot: BetSlotId): string | null {
-    if (this.state.phase !== 'betting') return 'Too late to cancel.'
     const pending = this.pending[slot]
-    if (!pending) return 'No bet to cancel.'
+    if (!pending) return 'Aucune mise à annuler.'
+    // Pending is always pre-lock (current betting window or next-round queue)
     this.pending[slot] = null
+    this.autoTemplates[slot] = null
     this.set({ balance: this.state.balance + pending.amount })
     return null
   }
@@ -162,10 +178,10 @@ export class CrashEngine {
   }
 
   cashOut(slot: BetSlotId): string | null {
-    if (this.state.phase !== 'flying') return 'Round is not live.'
+    if (this.state.phase !== 'flying') return 'La manche n’est pas en cours.'
     const bet = this.state.bets.find((b) => b.slot === slot)
-    if (!bet) return 'No active bet.'
-    if (bet.cashedOutAt != null) return 'Already cashed out.'
+    if (!bet) return 'Aucune mise active.'
+    if (bet.cashedOutAt != null) return 'Déjà encaissé.'
 
     const at = this.state.multiplier
     const payout = Math.floor(bet.amount * at * 100) / 100
@@ -196,21 +212,24 @@ export class CrashEngine {
         cashedOutAt: null,
         payout: null,
       })
-      // Keep auto-bet for next round; clear one-shot
-      if (!cfg.autoBet) this.pending[slot] = null
+      // Pending consumed into the live round; autoTemplates may re-arm later
+      this.pending[slot] = null
     }
     return bets
   }
 
-  private requeueAutoBets() {
+  /** After a round, pay + queue the next auto-bet from templates. */
+  private armAutoBets() {
     for (const slot of ['a', 'b'] as BetSlotId[]) {
-      const cfg = this.pending[slot]
-      if (!cfg?.autoBet) continue
-      if (cfg.amount > this.state.balance) {
-        this.pending[slot] = null
+      const tpl = this.autoTemplates[slot]
+      if (!tpl) continue
+      if (this.pending[slot]) continue // already queued/paid for next
+      if (tpl.amount > this.state.balance) {
+        this.autoTemplates[slot] = null
         continue
       }
-      this.set({ balance: this.state.balance - cfg.amount })
+      this.pending[slot] = { ...tpl }
+      this.set({ balance: this.state.balance - tpl.amount })
     }
   }
 
@@ -242,10 +261,10 @@ export class CrashEngine {
       const elapsed = performance.now() - started
       let multiplier = multiplierAt(elapsed)
 
-      // Auto cashouts
       let balance = this.state.balance
       let lastWin = this.state.lastWin
       let flash = this.state.flash
+      let didAuto = false
       const bets = this.state.bets.map((b) => {
         if (b.cashedOutAt != null) return b
         if (
@@ -258,6 +277,7 @@ export class CrashEngine {
           balance += payout
           lastWin = payout
           flash = 'win'
+          didAuto = true
           return { ...b, cashedOutAt: at, payout }
         }
         return b
@@ -285,13 +305,15 @@ export class CrashEngine {
           ),
         })
 
-        window.setTimeout(() => this.beginNextRound(), 2200)
+        if (this.crashTimer != null) clearTimeout(this.crashTimer)
+        this.crashTimer = window.setTimeout(() => this.beginNextRound(), CRASH_PAUSE_MS)
         return
       }
 
+      // Avoid emitting every tick when nothing meaningful changed except multiplier
       this.set({
         multiplier,
-        bets,
+        bets: didAuto ? bets : this.state.bets,
         balance,
         lastWin,
         flash,
@@ -301,12 +323,12 @@ export class CrashEngine {
           this.state.crashAt,
         ),
       })
-      return
     }
   }
 
   private beginNextRound() {
-    this.requeueAutoBets()
+    this.crashTimer = null
+    this.armAutoBets()
     const crashAt = this.nextCrashPoint()
     this.set({
       phase: 'betting',
