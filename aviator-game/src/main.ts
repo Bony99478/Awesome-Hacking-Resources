@@ -19,8 +19,6 @@ app.innerHTML = `
         <div class="balance-label">Solde</div>
         <div class="balance-value"><span>HTG</span> <strong id="balance">5,000.00</strong></div>
         <div class="balance-actions">
-          <button type="button" class="linkish" id="toggle-test">Mode test</button>
-          ·
           <button type="button" class="linkish" id="reset-balance">Réinitialiser le solde</button>
         </div>
       </div>
@@ -63,9 +61,7 @@ app.innerHTML = `
           <label for="force-crash">Crash forcé</label>
           <input id="force-crash" type="number" min="1" step="0.01" placeholder="ex. 2.00" />
         </div>
-        <button type="button" class="toggle-btn" id="force-lock" aria-pressed="false">
-          Répéter chaque manche
-        </button>
+        <label class="lock-label"><input type="checkbox" id="force-lock" /> Répéter chaque manche</label>
       </div>
       <div class="test-presets" id="test-presets">
         <button type="button" class="chip-btn" data-force="1.00">1.00x</button>
@@ -112,12 +108,10 @@ function betPanel(slot: BetSlotId, title: string): string {
         <input id="auto-${slot}" type="number" min="1.01" step="0.01" value="2.00" inputmode="decimal" />
       </div>
       <div class="toggles">
-        <button type="button" class="toggle-btn" id="use-auto-${slot}" aria-pressed="false">Auto encaisser</button>
-        <button type="button" class="toggle-btn" id="auto-bet-${slot}" aria-pressed="false">Auto miser</button>
+        <label><input type="checkbox" id="use-auto-${slot}" /> Auto encaisser</label>
+        <label><input type="checkbox" id="auto-bet-${slot}" /> Auto miser</label>
       </div>
-      <div class="actions" id="actions-${slot}">
-        <button type="button" class="btn btn-bet" data-act="bet" data-slot="${slot}">Miser</button>
-      </div>
+      <div class="actions" id="actions-${slot}"></div>
       <div class="status-line" id="status-${slot}"></div>
     </section>
   `
@@ -138,30 +132,11 @@ const els = {
   toast: document.querySelector<HTMLElement>('#toast')!,
   forceStatus: document.querySelector<HTMLElement>('#force-status')!,
   forceInput: document.querySelector<HTMLInputElement>('#force-crash')!,
-  forceLock: document.querySelector<HTMLButtonElement>('#force-lock')!,
-}
-
-/** Stable action mode per slot — avoid wiping the cash-out button every tick. */
-const actionMode: Record<BetSlotId, string> = { a: '', b: '' }
-
-function togglePressed(btn: HTMLButtonElement) {
-  const next = btn.getAttribute('aria-pressed') !== 'true'
-  btn.setAttribute('aria-pressed', String(next))
-  btn.classList.toggle('is-on', next)
-  return next
-}
-
-function isPressed(id: string): boolean {
-  return document.getElementById(id)?.getAttribute('aria-pressed') === 'true'
+  forceLock: document.querySelector<HTMLInputElement>('#force-lock')!,
 }
 
 document.querySelector('#reset-balance')!.addEventListener('click', () => {
   engine.resetBalance()
-})
-
-document.querySelector('#toggle-test')!.addEventListener('click', () => {
-  document.body.classList.toggle('show-test')
-  document.querySelector('.test-panel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
 })
 
 for (const slot of ['a', 'b'] as BetSlotId[]) {
@@ -179,21 +154,10 @@ for (const slot of ['a', 'b'] as BetSlotId[]) {
     const input = document.querySelector<HTMLInputElement>(`#amount-${slot}`)!
     input.value = btn.dataset.stake ?? '100'
   })
-
-  document.getElementById(`use-auto-${slot}`)?.addEventListener('click', (e) => {
-    togglePressed(e.currentTarget as HTMLButtonElement)
-  })
-  document.getElementById(`auto-bet-${slot}`)?.addEventListener('click', (e) => {
-    togglePressed(e.currentTarget as HTMLButtonElement)
-  })
 }
 
-els.forceLock.addEventListener('click', () => {
-  togglePressed(els.forceLock)
-})
-
 function applyForceFromUi(preset?: number) {
-  const lock = els.forceLock.getAttribute('aria-pressed') === 'true'
+  const lock = els.forceLock.checked
   const raw = preset ?? Number(els.forceInput.value)
   if (preset != null) els.forceInput.value = preset.toFixed(2)
   const err = engine.setForcedCrash(raw, lock)
@@ -216,17 +180,16 @@ document.querySelector('#apply-force')!.addEventListener('click', () => applyFor
 document.querySelector('#clear-force')!.addEventListener('click', () => {
   engine.clearForcedCrash()
   els.forceInput.value = ''
-  els.forceLock.setAttribute('aria-pressed', 'false')
-  els.forceLock.classList.remove('is-on')
+  els.forceLock.checked = false
   els.forceStatus.textContent = 'Crash actuel : aléatoire'
   els.forceStatus.classList.remove('error')
 })
 
 function readConfig(slot: BetSlotId) {
   const amount = Number(document.querySelector<HTMLInputElement>(`#amount-${slot}`)!.value)
-  const useAuto = isPressed(`use-auto-${slot}`)
+  const useAuto = document.querySelector<HTMLInputElement>(`#use-auto-${slot}`)!.checked
   const autoVal = Number(document.querySelector<HTMLInputElement>(`#auto-${slot}`)!.value)
-  const autoBet = isPressed(`auto-bet-${slot}`)
+  const autoBet = document.querySelector<HTMLInputElement>(`#auto-bet-${slot}`)!.checked
   return {
     amount,
     autoCashout: useAuto && autoVal >= 1.01 ? autoVal : null,
@@ -240,78 +203,58 @@ function setStatus(slot: BetSlotId, message: string, isError = false) {
   el.classList.toggle('error', isError)
 }
 
-function ensureAction(slot: BetSlotId, mode: string, html: string) {
-  const wrap = document.querySelector<HTMLElement>(`#actions-${slot}`)!
-  if (actionMode[slot] === mode) return wrap
-  actionMode[slot] = mode
-  wrap.innerHTML = html
-  return wrap
-}
-
 function renderActions(state: RoundState, slot: BetSlotId) {
+  const wrap = document.querySelector<HTMLElement>(`#actions-${slot}`)!
   const pending = engine.getPending(slot)
   const active = state.bets.find((b) => b.slot === slot)
 
-  if (state.phase === 'flying' && active && active.cashedOutAt == null) {
-    const potential = Math.floor(active.amount * state.multiplier * 100) / 100
-    ensureAction(
-      slot,
-      'cash',
-      `<button type="button" class="btn btn-cash" data-act="cash" data-slot="${slot}">
-        Encaisser
-        <span class="sub" data-cash-sub="${slot}"></span>
-      </button>`,
-    )
-    const sub = document.querySelector<HTMLElement>(`[data-cash-sub="${slot}"]`)
-    if (sub) {
-      sub.textContent = `${formatMoney(potential)} HTG @ ${formatMultiplier(state.multiplier)}`
+  if (state.phase === 'betting') {
+    if (pending) {
+      wrap.innerHTML = `
+        <button type="button" class="btn btn-cancel" data-act="cancel" data-slot="${slot}">
+          Annuler · ${formatMoney(pending.amount)}
+        </button>
+      `
+    } else {
+      wrap.innerHTML = `
+        <button type="button" class="btn btn-bet" data-act="bet" data-slot="${slot}">
+          Miser
+        </button>
+      `
     }
     return
   }
 
-  if (active?.cashedOutAt != null && state.phase !== 'betting') {
-    ensureAction(
-      slot,
-      `done-${active.cashedOutAt}-${active.payout}`,
-      `<button type="button" class="btn btn-bet" disabled>
+  if (state.phase === 'flying' && active && active.cashedOutAt == null) {
+    const potential = Math.floor(active.amount * state.multiplier * 100) / 100
+    wrap.innerHTML = `
+      <button type="button" class="btn btn-cash" data-act="cash" data-slot="${slot}">
+        Encaisser
+        <span class="sub">${formatMoney(potential)} HTG @ ${formatMultiplier(state.multiplier)}</span>
+      </button>
+    `
+    return
+  }
+
+  if (active?.cashedOutAt != null) {
+    wrap.innerHTML = `
+      <button type="button" class="btn btn-bet" disabled>
         Encaissé @ ${formatMultiplier(active.cashedOutAt)} · +${formatMoney(active.payout ?? 0)}
-      </button>`,
-    )
+      </button>
+    `
     return
   }
 
-  if (pending) {
-    const label =
-      state.phase === 'betting'
-        ? `Annuler · ${formatMoney(pending.amount)}`
-        : `En file · ${formatMoney(pending.amount)} (annuler)`
-    ensureAction(
-      slot,
-      `pending-${pending.amount}-${state.phase}`,
-      `<button type="button" class="btn btn-cancel" data-act="cancel" data-slot="${slot}">
-        ${label}
-      </button>`,
-    )
+  if (state.phase === 'flying' || state.phase === 'crashed') {
+    wrap.innerHTML = `
+      <button type="button" class="btn btn-bet" disabled>Prochaine manche…</button>
+    `
     return
   }
 
-  if (state.phase === 'betting') {
-    ensureAction(
-      slot,
-      'bet',
-      `<button type="button" class="btn btn-bet" data-act="bet" data-slot="${slot}">Miser</button>`,
-    )
-    return
-  }
-
-  // Flying/crashed with no active bet: allow queueing the next round
-  ensureAction(
-    slot,
-    'bet-next',
-    `<button type="button" class="btn btn-bet" data-act="bet" data-slot="${slot}">
-      Miser (prochaine manche)
-    </button>`,
-  )
+  wrap.innerHTML = `
+    <button type="button" class="btn btn-bet" data-act="bet" data-slot="${slot}">Miser</button>
+  `
 }
 
 app.addEventListener('click', (event) => {
@@ -323,14 +266,7 @@ app.addEventListener('click', (event) => {
 
   if (act === 'bet') {
     const err = engine.queueBet(slot, readConfig(slot))
-    setStatus(
-      slot,
-      err ??
-        (engine.getState().phase === 'betting'
-          ? 'Mise enregistrée pour cette manche.'
-          : 'Mise en file pour la prochaine manche.'),
-      Boolean(err),
-    )
+    setStatus(slot, err ?? 'Mise enregistrée.', Boolean(err))
   } else if (act === 'cancel') {
     const err = engine.cancelBet(slot)
     setStatus(slot, err ?? 'Mise annulée.', Boolean(err))
@@ -341,7 +277,6 @@ app.addEventListener('click', (event) => {
 })
 
 let lastHistoryId = ''
-let lastLiveKey = ''
 
 function render(state: RoundState) {
   els.balance.textContent = formatMoney(state.balance)
@@ -357,29 +292,23 @@ function render(state: RoundState) {
       .join('')
   }
 
-  const liveKey = state.livePlayers
-    .map((p) => `${p.id}:${p.cashedOutAt ?? ''}:${state.phase}`)
-    .join('|')
-  if (liveKey !== lastLiveKey) {
-    lastLiveKey = liveKey
-    els.liveCount.textContent = `${state.livePlayers.length} joueurs`
-    const sorted = [...state.livePlayers].sort((a, b) => {
-      const ao = a.cashedOutAt != null ? 0 : 1
-      const bo = b.cashedOutAt != null ? 0 : 1
-      return ao - bo
+  els.liveCount.textContent = `${state.livePlayers.length} joueurs`
+  const sorted = [...state.livePlayers].sort((a, b) => {
+    const ao = a.cashedOutAt != null ? 0 : 1
+    const bo = b.cashedOutAt != null ? 0 : 1
+    return ao - bo
+  })
+  els.liveList.innerHTML = sorted
+    .map((p) => {
+      const out =
+        p.cashedOutAt != null
+          ? `<span class="out">${formatMultiplier(p.cashedOutAt)}</span>`
+          : state.phase === 'crashed'
+            ? `<span class="out lost">—</span>`
+            : `<span class="out">…</span>`
+      return `<div class="live-row"><span class="name">${p.name}</span><span class="amt">${formatMoney(p.amount)}</span>${out}</div>`
     })
-    els.liveList.innerHTML = sorted
-      .map((p) => {
-        const out =
-          p.cashedOutAt != null
-            ? `<span class="out">${formatMultiplier(p.cashedOutAt)}</span>`
-            : state.phase === 'crashed'
-              ? `<span class="out lost">—</span>`
-              : `<span class="out">…</span>`
-        return `<div class="live-row"><span class="name">${p.name}</span><span class="amt">${formatMoney(p.amount)}</span>${out}</div>`
-      })
-      .join('')
-  }
+    .join('')
 
   canvas.setFrame({
     phase: state.phase,
@@ -392,7 +321,7 @@ function render(state: RoundState) {
   if (state.phase === 'betting') {
     els.phaseLabel.textContent = 'Placez vos paris'
     els.multiplier.textContent = '1.00x'
-    els.countdown.innerHTML = `Départ dans <strong>${(state.countdownMs / 1000).toFixed(1)}s</strong>`
+    els.countdown.innerHTML = `Départ dans <strong>${Math.ceil(state.countdownMs / 1000)}s</strong>`
   } else if (state.phase === 'flying') {
     els.phaseLabel.textContent = 'En vol'
     els.multiplier.textContent = formatMultiplier(state.multiplier)

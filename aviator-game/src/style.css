@@ -52,10 +52,10 @@ input {
 .shell {
   width: min(1280px, 100%);
   margin: 0 auto;
-  padding: 12px 12px 20px;
+  padding: 16px 16px 28px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
   flex: 1;
 }
 
@@ -185,9 +185,9 @@ input {
 
 .stage {
   display: grid;
-  grid-template-columns: 1fr 240px;
-  gap: 10px;
-  min-height: min(42vh, 420px);
+  grid-template-columns: 1fr 260px;
+  gap: 14px;
+  min-height: min(58vh, 560px);
   animation: rise-in 1s ease both;
 }
 
@@ -198,12 +198,12 @@ input {
   }
 
   .live {
-    max-height: 160px;
+    max-height: 220px;
   }
 
   .flight,
   .flight-overlay {
-    min-height: 220px;
+    min-height: 300px;
   }
 
   .topbar {
@@ -213,6 +213,10 @@ input {
 
   .balance-box {
     text-align: left;
+  }
+
+  .shell {
+    padding: 12px 12px 24px;
   }
 }
 
@@ -227,7 +231,7 @@ input {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  max-height: min(42vh, 420px);
+  max-height: min(58vh, 560px);
 }
 
 .live-head {
@@ -293,7 +297,7 @@ input {
 .flight {
   position: relative;
   overflow: hidden;
-  min-height: 260px;
+  min-height: 360px;
 }
 
 .flight canvas {
@@ -308,13 +312,13 @@ input {
   position: relative;
   z-index: 1;
   height: 100%;
-  min-height: 260px;
+  min-height: 360px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  padding: 16px;
+  padding: 24px;
   text-align: center;
 }
 
@@ -329,7 +333,7 @@ input {
 
 .multiplier {
   font-family: var(--font-display);
-  font-size: clamp(3rem, 9vw, 5.5rem);
+  font-size: clamp(4rem, 12vw, 7rem);
   line-height: 0.9;
   letter-spacing: 0.02em;
   color: var(--brand);
@@ -386,13 +390,8 @@ input {
 .bets {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 14px;
   animation: rise-in 1.15s ease both;
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
-  padding-top: 4px;
-  background: linear-gradient(180deg, transparent, rgba(4, 11, 18, 0.92) 18%);
 }
 
 @media (max-width: 720px) {
@@ -402,11 +401,10 @@ input {
 }
 
 .bet-panel {
-  padding: 12px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  background: rgba(8, 22, 36, 0.94);
+  gap: 12px;
 }
 
 .bet-panel h3 {
@@ -466,28 +464,17 @@ input {
 
 .toggles {
   display: flex;
-  gap: 8px;
+  gap: 16px;
   flex-wrap: wrap;
   font-size: 0.85rem;
   color: var(--muted);
 }
 
-.toggle-btn {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--line);
-  color: var(--muted);
-  border-radius: 999px;
-  padding: 8px 12px;
+.toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-
-.toggle-btn.is-on,
-.toggle-btn[aria-pressed='true'] {
-  color: #111;
-  background: linear-gradient(180deg, var(--brand), #e0b84a);
-  border-color: transparent;
 }
 
 .actions {
@@ -585,18 +572,14 @@ input {
 }
 
 .test-panel {
-  display: none;
-  padding: 12px;
+  padding: 16px;
+  display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   border-color: rgba(244, 211, 94, 0.28);
   background:
     linear-gradient(135deg, rgba(244, 211, 94, 0.06), transparent 40%),
     var(--bg-panel);
-}
-
-body.show-test .test-panel {
-  display: flex;
 }
 
 .test-head h3 {
@@ -623,8 +606,14 @@ body.show-test .test-panel {
   flex: 1;
 }
 
-.test-row .toggle-btn {
-  margin-bottom: 4px;
+.lock-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding-bottom: 10px;
+  cursor: pointer;
 }
 
 .test-presets {
